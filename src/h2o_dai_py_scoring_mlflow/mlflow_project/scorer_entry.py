@@ -40,7 +40,7 @@ from h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment import (
 )
 
 
-SCORING_WHEEL_MARKER_ENV = "MLFLOW_DRIVERLESS_WHEEL_SOURCE"
+SCORING_WHEEL_MARKER_ENV = "H2O_DAI_MLFLOW_WHEEL_SOURCE"
 _SCORING_ENV_VARS = (
     "SCORING_PIPELINE_DIR",
     "DRIVERLESS_SCORING_PIPELINE_DIR",
@@ -298,11 +298,11 @@ def _score_command(args: argparse.Namespace) -> int:
         # env) and drop the wheel into the scoring directory so the logger will
         # reference it explicitly.
         try:
-            if os.environ.get("MLFLOW_DRIVERLESS_BUILD_PYORC", "1").strip() != "0":
+            if os.environ.get("H2O_DAI_MLFLOW_BUILD_PYORC", "1").strip() != "0":
                 have_pyorc = any(p.name.startswith("pyorc-") and p.suffix == ".whl" for p in scoring_dir.glob("pyorc-*.whl"))
                 if not have_pyorc:
                     # Preferred version (configurable), fallback to any
-                    pref = os.environ.get("MLFLOW_DRIVERLESS_PYORC_VERSION", "0.9.0").strip()
+                    pref = os.environ.get("H2O_DAI_MLFLOW_PYORC_VERSION", "0.9.0").strip()
                     candidates = [f"pyorc=={pref}", "pyorc"] if pref else ["pyorc"]
                     for spec in candidates:
                         cmd = [sys.executable, "-m", "pip", "wheel", spec, "-w", str(scoring_dir)]
@@ -399,7 +399,7 @@ def _log_model_command(args: argparse.Namespace) -> int:
         _install_scoring_wheels(scoring_dir, marker)
 
         # Signal to the helper that we are already running inside the project-managed env.
-        os.environ["MLFLOW_DRIVERLESS_PROJECT_MODE"] = "1"
+        os.environ["H2O_DAI_MLFLOW_PROJECT_MODE"] = "1"
 
         model_info = log_driverless_scoring_pipeline_in_project(
             scoring_pipeline_dir=str(scoring_dir),

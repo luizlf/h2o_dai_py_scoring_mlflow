@@ -1,8 +1,8 @@
 """Entry point that logs the Driverless AI scoring pipeline as an MLflow model.
 
 Configuration is driven via environment variables (see src/h2o_dai_py_scoring_mlflow/config.py):
-  - MLFLOW_TS_EXPERIMENT: MLflow experiment path (default: /Shared/h2o_dai_py_scoring_mlflow)
-  - MLFLOW_TS_ARTIFACT_PATH: model artifact path (default: driverless_ts_pyfunc)
+  - H2O_DAI_MLFLOW_EXPERIMENT: MLflow experiment path (default: /Shared/h2o_dai_py_scoring_mlflow)
+  - H2O_DAI_MLFLOW_ARTIFACT_PATH: model artifact path (default: driverless_ts_pyfunc)
   - SCORING_PIPELINE_DIR: absolute path to exported scoring-pipeline directory
 """
 

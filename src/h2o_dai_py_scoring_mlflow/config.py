@@ -4,19 +4,19 @@ All options are driven by environment variables with safe defaults. This allows
 the same codebase to be used as a template without hardcoded paths.
 
 Environment variables:
-  - MLFLOW_TS_EXPERIMENT: MLflow experiment path (default: /Shared/h2o_dai_py_scoring_mlflow)
-  - MLFLOW_TS_ARTIFACT_PATH: Artifact path for the logged model (default: driverless_ts_pyfunc)
+  - H2O_DAI_MLFLOW_EXPERIMENT: MLflow experiment path (default: /Shared/h2o_dai_py_scoring_mlflow)
+  - H2O_DAI_MLFLOW_ARTIFACT_PATH: Artifact path for the logged model (default: driverless_ts_pyfunc)
   - SCORING_PIPELINE_DIR: Absolute path to the exported scoring-pipeline directory
                            (fallback: ./scoring-pipeline next to this package)
 
 Driverless/packaging toggles (read in deployment/scorer_entry):
-  - MLFLOW_DRIVERLESS_EXCLUDE_PACKAGES: comma-separated names to drop from pip
-  - MLFLOW_DRIVERLESS_PYSPARK_VERSION: version string (default: 3.3.2)
-  - MLFLOW_DRIVERLESS_DISABLE_PYSPARK: if "1", do not add pyspark shim
-  - MLFLOW_DRIVERLESS_IMPORTLIB_RESOURCES_VERSION: version string (default: 5.12.0)
-  - MLFLOW_DRIVERLESS_DISABLE_IMPORTLIB_RESOURCES: if "1", do not add backport
-  - MLFLOW_DRIVERLESS_BUILD_PYORC: if "0", skip building pyorc wheel during logging (default enabled)
-  - MLFLOW_DRIVERLESS_PYORC_VERSION: preferred pyorc version to build (default: 0.9.0)
+  - H2O_DAI_MLFLOW_EXCLUDE_PACKAGES: comma-separated names to drop from pip
+  - H2O_DAI_MLFLOW_PYSPARK_VERSION: version string (default: 3.3.2)
+  - H2O_DAI_MLFLOW_DISABLE_PYSPARK: if "1", do not add pyspark shim
+  - H2O_DAI_MLFLOW_IMPORTLIB_RESOURCES_VERSION: version string (default: 5.12.0)
+  - H2O_DAI_MLFLOW_DISABLE_IMPORTLIB_RESOURCES: if "1", do not add backport
+  - H2O_DAI_MLFLOW_BUILD_PYORC: if "0", skip building pyorc wheel during logging (default enabled)
+  - H2O_DAI_MLFLOW_PYORC_VERSION: preferred pyorc version to build (default: 0.9.0)
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ from pathlib import Path
 
 
 def get_experiment_path() -> str:
-    return os.environ.get("MLFLOW_TS_EXPERIMENT", "/Shared/h2o_dai_py_scoring_mlflow").strip()
+    return os.environ.get("H2O_DAI_MLFLOW_EXPERIMENT", "/Shared/h2o_dai_py_scoring_mlflow").strip()
 
 
 def get_artifact_path() -> str:
-    return os.environ.get("MLFLOW_TS_ARTIFACT_PATH", "driverless_ts_pyfunc").strip()
+    return os.environ.get("H2O_DAI_MLFLOW_ARTIFACT_PATH", "driverless_ts_pyfunc").strip()
 
 
 def get_scoring_dir() -> str:

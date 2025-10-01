@@ -291,7 +291,7 @@ def build_pip_requirements(
         instead enumerate actual wheels present next to the scorer on disk.
       - Exclude packages known to cause dependency conflicts for CPU-only
         scoring (e.g., h2o4gpu pins scikit-learn==0.21.x). You can extend the
-        exclusion list via MLFLOW_DRIVERLESS_EXCLUDE_PACKAGES (comma-separated
+        exclusion list via H2O_DAI_MLFLOW_EXCLUDE_PACKAGES (comma-separated
         names).
     """
 
@@ -299,7 +299,7 @@ def build_pip_requirements(
         # Drop packages that are unnecessary for CPU inference or known to
         # cause heavy/fragile builds or dependency conflicts.
         default = ["h2o4gpu", "pyorc"]
-        env = os.environ.get("MLFLOW_DRIVERLESS_EXCLUDE_PACKAGES", "").strip()
+        env = os.environ.get("H2O_DAI_MLFLOW_EXCLUDE_PACKAGES", "").strip()
         if not env:
             return default
         extra = [p.strip() for p in env.split(",") if p.strip()]
@@ -357,11 +357,11 @@ def build_pip_requirements(
     # Ensure compatibility shims are always present in the model env.
     # Compose compatibility shims from env-configurable pins
     compat_pkgs: List[str] = []
-    if os.environ.get("MLFLOW_DRIVERLESS_DISABLE_IMPORTLIB_RESOURCES", "0").strip() != "1":
-        ir_ver = os.environ.get("MLFLOW_DRIVERLESS_IMPORTLIB_RESOURCES_VERSION", "5.12.0").strip()
+    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_IMPORTLIB_RESOURCES", "0").strip() != "1":
+        ir_ver = os.environ.get("H2O_DAI_MLFLOW_IMPORTLIB_RESOURCES_VERSION", "5.12.0").strip()
         compat_pkgs.append(f"importlib-resources=={ir_ver}")
-    if os.environ.get("MLFLOW_DRIVERLESS_DISABLE_PYSPARK", "0").strip() != "1":
-        pyspark_ver = os.environ.get("MLFLOW_DRIVERLESS_PYSPARK_VERSION", "3.3.2").strip()
+    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_PYSPARK", "0").strip() != "1":
+        pyspark_ver = os.environ.get("H2O_DAI_MLFLOW_PYSPARK_VERSION", "3.3.2").strip()
         compat_pkgs.append(f"pyspark=={pyspark_ver}")
 
     combined = package_specs + discovered_wheels + compat_pkgs
@@ -408,7 +408,7 @@ def build_conda_env_config(python_env: Mapping[str, Any]) -> Dict[str, Any]:
     dependencies: List[Any] = [f"python={python_version}"]
     dependencies.extend(build_deps)
     # Ensure libmagic is present for python-magic (h2oaicore depends on it)
-    if os.environ.get("MLFLOW_DRIVERLESS_DISABLE_LIBMAGIC", "0").strip() != "1":
+    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_LIBMAGIC", "0").strip() != "1":
         if not any(str(d).startswith("libmagic") for d in dependencies if isinstance(d, str)):
             dependencies.append("libmagic")
     if pip_packages:
@@ -421,7 +421,7 @@ def build_conda_env_config(python_env: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-PROJECT_MODE_ENV = "MLFLOW_DRIVERLESS_PROJECT_MODE"
+PROJECT_MODE_ENV = "H2O_DAI_MLFLOW_PROJECT_MODE"
 MODEL_INFO_ARTIFACT = "_driverless/model_info.json"
 REQUIRED_PYTHON_VERSION = (3, 8)
 PROJECT_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "mlflow_project"
@@ -505,9 +505,9 @@ def _stage_helper_package(destination: Path) -> None:
 def _should_launch_project() -> bool:
     if os.environ.get(PROJECT_MODE_ENV) == "1":
         return False
-    if os.environ.get("MLFLOW_DRIVERLESS_DISABLE_PROJECT") == "1":
+    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_PROJECT") == "1":
         return False
-    if os.environ.get("MLFLOW_DRIVERLESS_FORCE_PROJECT") == "1":
+    if os.environ.get("H2O_DAI_MLFLOW_FORCE_PROJECT") == "1":
         return True
     return sys.version_info[:2] != REQUIRED_PYTHON_VERSION
 
@@ -662,7 +662,7 @@ def _log_driverless_scoring_pipeline_impl(
             python_env_cfg = dict(python_env)
         else:
             raise TypeError("python_env must be a mapping or file path when provided")
-    elif os.environ.get("MLFLOW_DRIVERLESS_FORCE_CONDA", "0").strip() == "1":
+    elif os.environ.get("H2O_DAI_MLFLOW_FORCE_CONDA", "0").strip() == "1":
         # Synthesize a python_env from pip requirements so we can emit a conda env
         python_env_cfg = build_python_env_config(
             python_version=DEFAULT_PYTHON_VERSION,
