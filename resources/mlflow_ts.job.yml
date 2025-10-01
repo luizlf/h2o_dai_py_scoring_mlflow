@@ -1,8 +1,8 @@
-# The main job for mlflow_ts.
+# The main job for h2o_dai_py_scoring_mlflow.
 resources:
   jobs:
-    mlflow_ts_job:
-      name: mlflow_ts_job
+    h2o_dai_py_scoring_mlflow_job:
+      name: h2o_dai_py_scoring_mlflow_job
 
       trigger:
         # Run this job every day, exactly one day from the last run; see https://docs.databricks.com/api/workspace/jobs/create#trigger
@@ -28,13 +28,13 @@ resources:
 
           #job_cluster_key: 16.4_cluster
           python_wheel_task:
-            package_name: mlflow_ts
+            package_name: h2o_dai_py_scoring_mlflow
             entry_point: main
           environment_variables:
             MLFLOW_DRIVERLESS_FORCE_CONDA: "1"
-            MLFLOW_TS_EXPERIMENT: "/Shared/mlflow_ts"
+            MLFLOW_TS_EXPERIMENT: "/Shared/h2o_dai_py_scoring_mlflow"
           libraries:
-            # By default we just include the .whl file generated for the mlflow_ts package.
+            # By default we just include the .whl file generated for the h2o_dai_py_scoring_mlflow package.
             # See https://docs.databricks.com/dev-tools/bundles/library-dependencies.html
             # for more information on how to add other libraries.
             - whl: ../dist/*.whl

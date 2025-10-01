@@ -1,10 +1,10 @@
-"""Centralized configuration for mlflow_ts template.
+"""Centralized configuration for h2o_dai_py_scoring_mlflow template.
 
 All options are driven by environment variables with safe defaults. This allows
 the same codebase to be used as a template without hardcoded paths.
 
 Environment variables:
-  - MLFLOW_TS_EXPERIMENT: MLflow experiment path (default: /Shared/mlflow_ts)
+  - MLFLOW_TS_EXPERIMENT: MLflow experiment path (default: /Shared/h2o_dai_py_scoring_mlflow)
   - MLFLOW_TS_ARTIFACT_PATH: Artifact path for the logged model (default: driverless_ts_pyfunc)
   - SCORING_PIPELINE_DIR: Absolute path to the exported scoring-pipeline directory
                            (fallback: ./scoring-pipeline next to this package)
@@ -26,7 +26,7 @@ from pathlib import Path
 
 
 def get_experiment_path() -> str:
-    return os.environ.get("MLFLOW_TS_EXPERIMENT", "/Shared/mlflow_ts").strip()
+    return os.environ.get("MLFLOW_TS_EXPERIMENT", "/Shared/h2o_dai_py_scoring_mlflow").strip()
 
 
 def get_artifact_path() -> str:

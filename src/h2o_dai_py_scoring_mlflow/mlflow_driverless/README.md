@@ -11,7 +11,7 @@ served. Usage outline:
 3. Start an MLflow run (or let the helper create one implicitly) and execute:
 
    ```bash
-   python -m mlflow_ts.mlflow_driverless.deployment scoring-pipeline --artifact-path driverless_ts_model
+   python -m h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment scoring-pipeline --artifact-path driverless_ts_model
    ```
 
    The command copies the scoring pipeline into the logged model, builds a ``python_env.yaml`` that
@@ -24,7 +24,7 @@ served. Usage outline:
    the Linux runtime will still infer outputs when the model is served.
 
    You can also pass a ``*.zip`` exported scoring bundle directly (for example
-   ``python -m mlflow_ts.mlflow_driverless.deployment scorer.zip``); the helper extracts it to a temporary
+   ``python -m h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment scorer.zip``); the helper extracts it to a temporary
    directory automatically before logging.
 
 4. Before serving, provide a valid Driverless AI license via ``DRIVERLESS_AI_LICENSE_KEY`` or

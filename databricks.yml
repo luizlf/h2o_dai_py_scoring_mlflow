@@ -1,7 +1,7 @@
-# This is a Databricks asset bundle definition for mlflow_ts.
+# This is a Databricks asset bundle definition for h2o_dai_py_scoring_mlflow.
 # See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
 bundle:
-  name: mlflow_ts
+  name: h2o_dai_py_scoring_mlflow
   uuid: 6f776c9d-1a5a-44bf-b78a-9dd6bedccfdb
 
 artifacts:

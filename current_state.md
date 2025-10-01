@@ -1,4 +1,4 @@
-# Final Solution Overview – mlflow_ts
+# Final Solution Overview – h2o_dai_py_scoring_mlflow
 
 This document describes the final, working solution for packaging and serving the H2O Driverless AI (DAI) Python scoring pipeline on Databricks, and how to use it reliably from both Databricks Model Serving and notebooks.
 
@@ -19,13 +19,13 @@ An MLflow pyfunc model that embeds a DAI scoring pipeline and a self‑contained
 ## Serving (Databricks Model Serving)
 
 - Endpoint: `mlflow-ts-endpoint`
-- Model: `mlflow_ts_driverless_ts_pyfunc` (use the latest version, v9+)
+- Model: `h2o_dai_py_scoring_mlflow_driverless_ts_pyfunc` (use the latest version, v9+)
 - License is provided via Serving environment variables (no code changes needed):
   - `DRIVERLESS_AI_LICENSE_KEY = <provided value>`
 
 Rolling a new version (always proceed, no confirmation required):
 1) Log a model (wheel task only)
-   - `databricks bundle run mlflow_ts_job --only main_task`
+   - `databricks bundle run h2o_dai_py_scoring_mlflow_job --only main_task`
 2) Register the new version from the run’s artifact URI (`.../driverless_ts_pyfunc`)
 3) Update the endpoint config to the new version, include the env var:
    - `DRIVERLESS_AI_LICENSE_KEY` (STRING) with the configured key
@@ -79,7 +79,7 @@ preds = mlflow.models.predict(
 ## Minimal Runbook
 
 - Build & deploy bundle: `uv build --wheel && databricks bundle deploy`
-- Log model (wheel task): `databricks bundle run mlflow_ts_job --only main_task`
+- Log model (wheel task): `databricks bundle run h2o_dai_py_scoring_mlflow_job --only main_task`
 - Register model version: use `dbfs:/.../<run_id>/artifacts/driverless_ts_pyfunc`
 - Update endpoint to new version and include env var:
   - `DRIVERLESS_AI_LICENSE_KEY = <provided value>`
@@ -100,7 +100,7 @@ This overview reflects the final, working setup. Use it as the single source of 
 
 ## Repository Layout (final)
 
-- src/mlflow_ts/
+- src/h2o_dai_py_scoring_mlflow/
   - config.py – single source of truth for experiment/artifact/scoring dir and env tunables
   - main.py – logs the model (uses config; no hardcoded paths)
   - mlflow_driverless/ – the DAI/MLflow packager and pyfunc implementation
@@ -111,4 +111,4 @@ This overview reflects the final, working setup. Use it as the single source of 
     - python_env.yaml – Project runtime pins
   - sitecustomize.py – early import/runtime fixes (always copied into model code/)
 
-Note: the compatibility shim package src/mlflow_driverless/ has been removed to avoid confusion. Import the helper as mlflow_ts.mlflow_driverless.deployment if you call it directly.
+Note: the compatibility shim package src/mlflow_driverless/ has been removed to avoid confusion. Import the helper as h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment if you call it directly.

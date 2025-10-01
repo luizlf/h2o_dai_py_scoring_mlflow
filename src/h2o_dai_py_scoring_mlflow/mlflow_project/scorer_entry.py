@@ -35,7 +35,7 @@ if stdlib_resources is not None and backport_resources is not None:
 import mlflow
 import pandas as pd
 
-from mlflow_ts.mlflow_driverless.deployment import (
+from h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment import (
     log_driverless_scoring_pipeline_in_project,
 )
 
