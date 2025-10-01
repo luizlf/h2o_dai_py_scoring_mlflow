@@ -38,15 +38,15 @@ import pandas as pd
 from h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment import (
     log_driverless_scoring_pipeline_in_project,
 )
+from h2o_dai_py_scoring_mlflow.config import (
+    PROJECT_MODE_ENV,
+    get_build_pyorc_enabled,
+    get_pyorc_version,
+    get_scoring_env_var_aliases,
+)
 
 
 SCORING_WHEEL_MARKER_ENV = "H2O_DAI_MLFLOW_WHEEL_SOURCE"
-_SCORING_ENV_VARS = (
-    "SCORING_PIPELINE_DIR",
-    "DRIVERLESS_SCORING_PIPELINE_DIR",
-    "DRIVERLESS_SCORING_DIR",
-    "DRIVERLESS_AI_SCORING_PIPELINE_DIR",
-)
 
 
 def _candidate_roots() -> List[Path]:
@@ -98,7 +98,7 @@ def _generate_scoring_candidates(raw_value: str) -> List[Path]:
         add(Path("scoring-pipeline"))
         add(Path("scoring-pipeline.zip"))
 
-    for env_name in _SCORING_ENV_VARS:
+    for env_name in get_scoring_env_var_aliases():
         env_value = os.environ.get(env_name)
         if not env_value:
             continue
@@ -298,11 +298,10 @@ def _score_command(args: argparse.Namespace) -> int:
         # env) and drop the wheel into the scoring directory so the logger will
         # reference it explicitly.
         try:
-            if os.environ.get("H2O_DAI_MLFLOW_BUILD_PYORC", "1").strip() != "0":
+            if get_build_pyorc_enabled():
                 have_pyorc = any(p.name.startswith("pyorc-") and p.suffix == ".whl" for p in scoring_dir.glob("pyorc-*.whl"))
                 if not have_pyorc:
-                    # Preferred version (configurable), fallback to any
-                    pref = os.environ.get("H2O_DAI_MLFLOW_PYORC_VERSION", "0.9.0").strip()
+                    pref = get_pyorc_version()
                     candidates = [f"pyorc=={pref}", "pyorc"] if pref else ["pyorc"]
                     for spec in candidates:
                         cmd = [sys.executable, "-m", "pip", "wheel", spec, "-w", str(scoring_dir)]
@@ -399,7 +398,7 @@ def _log_model_command(args: argparse.Namespace) -> int:
         _install_scoring_wheels(scoring_dir, marker)
 
         # Signal to the helper that we are already running inside the project-managed env.
-        os.environ["H2O_DAI_MLFLOW_PROJECT_MODE"] = "1"
+        os.environ[PROJECT_MODE_ENV] = "1"
 
         model_info = log_driverless_scoring_pipeline_in_project(
             scoring_pipeline_dir=str(scoring_dir),

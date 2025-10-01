@@ -2,7 +2,7 @@
 
 Configuration is driven via environment variables (see src/h2o_dai_py_scoring_mlflow/config.py):
   - H2O_DAI_MLFLOW_EXPERIMENT: MLflow experiment path (default: /Shared/h2o_dai_py_scoring_mlflow)
-  - H2O_DAI_MLFLOW_ARTIFACT_PATH: model artifact path (default: driverless_ts_pyfunc)
+  - H2O_DAI_MLFLOW_ARTIFACT_PATH: model artifact path (default: h2o_dai_scoring_pyfunc)
   - SCORING_PIPELINE_DIR: absolute path to exported scoring-pipeline directory
 """
 

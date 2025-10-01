@@ -19,14 +19,14 @@ An MLflow pyfunc model that embeds a DAI scoring pipeline and a self‑contained
 ## Serving (Databricks Model Serving)
 
 - Endpoint: `mlflow-ts-endpoint`
-- Model: `h2o_dai_py_scoring_mlflow_driverless_ts_pyfunc` (use the latest version, v9+)
+- Model: `<your registered model name>` (use the latest version)
 - License is provided via Serving environment variables (no code changes needed):
   - `DRIVERLESS_AI_LICENSE_KEY = <provided value>`
 
 Rolling a new version (always proceed, no confirmation required):
 1) Log a model (wheel task only)
    - `databricks bundle run h2o_dai_py_scoring_mlflow_job --only main_task`
-2) Register the new version from the run’s artifact URI (`.../driverless_ts_pyfunc`)
+2) Register the new version from the run’s artifact URI (`.../h2o_dai_scoring_pyfunc`)
 3) Update the endpoint config to the new version, include the env var:
    - `DRIVERLESS_AI_LICENSE_KEY` (STRING) with the configured key
 4) Wait until `NOT_UPDATING` and `READY`
@@ -39,7 +39,7 @@ When using `mlflow.models.predict` on Databricks, the child Py 3.8 process impor
 
 ```python
 import os, mlflow
-model_uri = "runs:/<run_id>/driverless_ts_pyfunc"
+model_uri = "runs:/<run_id>/h2o_dai_scoring_pyfunc"
 
 # Keep virtualenvs in a driver-writable location
 os.environ["MLFLOW_ENV_ROOT"] = "/local_disk0/.ephemeral_nfs/user_tmp_data/mlflow_envs"
@@ -80,7 +80,7 @@ preds = mlflow.models.predict(
 
 - Build & deploy bundle: `uv build --wheel && databricks bundle deploy`
 - Log model (wheel task): `databricks bundle run h2o_dai_py_scoring_mlflow_job --only main_task`
-- Register model version: use `dbfs:/.../<run_id>/artifacts/driverless_ts_pyfunc`
+- Register model version: use `dbfs:/.../<run_id>/artifacts/h2o_dai_scoring_pyfunc`
 - Update endpoint to new version and include env var:
   - `DRIVERLESS_AI_LICENSE_KEY = <provided value>`
 - Wait for `NOT_UPDATING / READY` and test with a small dataframe_records payload

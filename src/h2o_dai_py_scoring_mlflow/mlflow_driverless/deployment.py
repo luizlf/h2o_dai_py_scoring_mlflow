@@ -21,6 +21,23 @@ from mlflow.models import infer_signature
 from mlflow.models.signature import ModelSignature
 import yaml
 from mlflow.types import ColSpec, Schema
+import typing as _t
+
+from h2o_dai_py_scoring_mlflow.config import (
+    DEFAULT_PYTHON_VERSION,
+    REQUIRED_PYTHON_VERSION,
+    PROJECT_MODE_ENV,
+    get_excluded_packages,
+    get_importlib_resources_version,
+    get_pyspark_version,
+    is_importlib_resources_disabled,
+    is_libmagic_disabled,
+    is_project_disabled,
+    is_project_forced,
+    is_project_mode,
+    is_pyspark_disabled,
+    is_conda_forced,
+)
 
 
 _logger = logging.getLogger(__name__)
@@ -137,6 +154,98 @@ def _extract_column_names_from_example(example_path: Path) -> List[str]:
     return list(ordered.keys())
 
 
+def _mlflow_type_from_dai(dtype: _t.Optional[str]) -> str:
+    if not dtype:
+        return "string"
+    t = dtype.strip().lower()
+    if t in {"string", "str", "unicode", "enum", "category"}:
+        return "string"
+    if t in {"int", "integer"}:
+        return "long"
+    if t in {"long", "int64"}:
+        return "long"
+    if t in {"real", "float", "double", "number", "numeric"}:
+        return "double"
+    if t in {"bool", "boolean"}:
+        return "boolean"
+    if t in {"date", "datetime", "time", "timestamp"}:
+        return "datetime"
+    if t in {"binary", "bytes"}:
+        return "binary"
+    return "string"
+
+
+def _extract_schema_from_example(example_path: Path) -> List[Tuple[str, str]]:
+    if not example_path.exists():
+        return []
+    try:
+        text = example_path.read_text()
+    except Exception:
+        return []
+
+    pairs: List[Tuple[str, str]] = []
+
+    # Pattern for dict(name='...', type='...') style
+    import re as _re
+    pattern1 = _re.compile(
+        r"dict\s*\(.*?name\s*=\s*['\"]([^'\"]+)['\"].*?type\s*=\s*['\"]([^'\"]+)['\"].*?\)",
+        _re.IGNORECASE | _re.DOTALL,
+    )
+    for m in pattern1.finditer(text):
+        name = m.group(1)
+        dtype = m.group(2)
+        pairs.append((name, _mlflow_type_from_dai(dtype)))
+
+    # Pattern for {'name': '...', 'type': '...'} style
+    pattern2 = _re.compile(
+        r"\{[^}]*['\"]name['\"]\s*:\s*['\"]([^'\"]+)['\"][^}]*['\"]type['\"]\s*:\s*['\"]([^'\"]+)['\"][^}]*\}",
+        _re.IGNORECASE | _re.DOTALL,
+    )
+    for m in pattern2.finditer(text):
+        name = m.group(1)
+        dtype = m.group(2)
+        pairs.append((name, _mlflow_type_from_dai(dtype)))
+
+    # Deduplicate preserving order
+    seen: OrderedDict[str, str] = OrderedDict()
+    for name, dtype in pairs:
+        if name not in seen:
+            seen[name] = dtype
+    return [(n, d) for n, d in seen.items()]
+
+
+def _build_input_schema(
+    scoring_path: Path,
+    *,
+    stats: Mapping[str, Any],
+    resolved_input_example: _t.Optional[pd.DataFrame],
+) -> _t.Optional[Schema]:
+    # Prefer explicit schema from example.py if present
+    example_pairs = _extract_schema_from_example(scoring_path / "example.py")
+    if example_pairs:
+        return Schema([ColSpec(type=d, name=n) for n, d in example_pairs])
+
+    # Next, derive from training_data_column_stats.json data_type fields
+    if isinstance(stats, dict) and stats:
+        cols: List[ColSpec] = []
+        for name, meta in stats.items():
+            if not isinstance(meta, dict):
+                continue
+            dtype = _mlflow_type_from_dai(str(meta.get("data_type", "")))
+            cols.append(ColSpec(type=dtype, name=str(name)))
+        if cols:
+            return Schema(cols)
+
+    # Finally, if the user supplied an input example, infer schema from it
+    if resolved_input_example is not None:
+        try:
+            inferred = infer_signature(resolved_input_example)
+            return inferred.inputs
+        except Exception:
+            return None
+    return None
+
+
 def _load_experiment_summary(scoring_path: Path) -> Dict[str, Any]:
     summary_zip = next(scoring_path.glob("h2oai_experiment_summary_*.zip"), None)
     if summary_zip is None:
@@ -214,7 +323,7 @@ class DriverlessAIScoringModel(mlflow.pyfunc.PythonModel):
     def predict(
         self,
         context: mlflow.pyfunc.model.PythonModelContext,
-        model_input: Union[pd.DataFrame, Mapping[str, Any], Sequence[Mapping[str, Any]]],
+        model_input: List[pd.DataFrame],
     ) -> pd.DataFrame:
         self._ensure_scorer_initialized()
 
@@ -295,17 +404,6 @@ def build_pip_requirements(
         names).
     """
 
-    def _parse_excludes() -> List[str]:
-        # Drop packages that are unnecessary for CPU inference or known to
-        # cause heavy/fragile builds or dependency conflicts.
-        default = ["h2o4gpu", "pyorc"]
-        env = os.environ.get("H2O_DAI_MLFLOW_EXCLUDE_PACKAGES", "").strip()
-        if not env:
-            return default
-        extra = [p.strip() for p in env.split(",") if p.strip()]
-        # preserve order and drop dups
-        return [x for x in default + extra if x]
-
     def _pkg_name(spec: str) -> str:
         # For wheel paths: take basename, then name before first dash
         base = Path(spec).name
@@ -318,7 +416,7 @@ def build_pip_requirements(
                 return s.split(sep)[0].split("[")[0].strip().lower()
         return s.split("[")[0].strip().lower()
 
-    exclude_pkgs = set(x.lower() for x in _parse_excludes())
+    exclude_pkgs = set(x.lower() for x in get_excluded_packages())
 
     scoring_path = Path(scoring_pipeline_dir)
     requirements_file = scoring_path / "requirements.txt"
@@ -357,12 +455,10 @@ def build_pip_requirements(
     # Ensure compatibility shims are always present in the model env.
     # Compose compatibility shims from env-configurable pins
     compat_pkgs: List[str] = []
-    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_IMPORTLIB_RESOURCES", "0").strip() != "1":
-        ir_ver = os.environ.get("H2O_DAI_MLFLOW_IMPORTLIB_RESOURCES_VERSION", "5.12.0").strip()
-        compat_pkgs.append(f"importlib-resources=={ir_ver}")
-    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_PYSPARK", "0").strip() != "1":
-        pyspark_ver = os.environ.get("H2O_DAI_MLFLOW_PYSPARK_VERSION", "3.3.2").strip()
-        compat_pkgs.append(f"pyspark=={pyspark_ver}")
+    if not is_importlib_resources_disabled():
+        compat_pkgs.append(f"importlib-resources=={get_importlib_resources_version()}")
+    if not is_pyspark_disabled():
+        compat_pkgs.append(f"pyspark=={get_pyspark_version()}")
 
     combined = package_specs + discovered_wheels + compat_pkgs
     if include_mlflow:
@@ -374,7 +470,8 @@ def build_pip_requirements(
     return _deduplicate_preserve_order(combined)
 
 
-DEFAULT_PYTHON_VERSION = "3.8.12"
+# Python version pinned for the project/model runtime
+# Centralized in config.py
 
 
 def build_python_env_config(
@@ -408,7 +505,7 @@ def build_conda_env_config(python_env: Mapping[str, Any]) -> Dict[str, Any]:
     dependencies: List[Any] = [f"python={python_version}"]
     dependencies.extend(build_deps)
     # Ensure libmagic is present for python-magic (h2oaicore depends on it)
-    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_LIBMAGIC", "0").strip() != "1":
+    if not is_libmagic_disabled():
         if not any(str(d).startswith("libmagic") for d in dependencies if isinstance(d, str)):
             dependencies.append("libmagic")
     if pip_packages:
@@ -421,9 +518,7 @@ def build_conda_env_config(python_env: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-PROJECT_MODE_ENV = "H2O_DAI_MLFLOW_PROJECT_MODE"
 MODEL_INFO_ARTIFACT = "_driverless/model_info.json"
-REQUIRED_PYTHON_VERSION = (3, 8)
 PROJECT_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "mlflow_project"
 
 
@@ -503,11 +598,11 @@ def _stage_helper_package(destination: Path) -> None:
 
 
 def _should_launch_project() -> bool:
-    if os.environ.get(PROJECT_MODE_ENV) == "1":
+    if is_project_mode():
         return False
-    if os.environ.get("H2O_DAI_MLFLOW_DISABLE_PROJECT") == "1":
+    if is_project_disabled():
         return False
-    if os.environ.get("H2O_DAI_MLFLOW_FORCE_PROJECT") == "1":
+    if is_project_forced():
         return True
     return sys.version_info[:2] != REQUIRED_PYTHON_VERSION
 
@@ -662,7 +757,7 @@ def _log_driverless_scoring_pipeline_impl(
             python_env_cfg = dict(python_env)
         else:
             raise TypeError("python_env must be a mapping or file path when provided")
-    elif os.environ.get("H2O_DAI_MLFLOW_FORCE_CONDA", "0").strip() == "1":
+    elif is_conda_forced():
         # Synthesize a python_env from pip requirements so we can emit a conda env
         python_env_cfg = build_python_env_config(
             python_version=DEFAULT_PYTHON_VERSION,
@@ -707,33 +802,41 @@ def _log_driverless_scoring_pipeline_impl(
     if input_example_final is None and normalized_columns:
         input_example_final = _build_input_example(normalized_columns, stats)
 
+    # Build input schema from example.py / stats / input_example
+    input_schema: Optional[Schema] = _build_input_schema(
+        scoring_path, stats=stats, resolved_input_example=input_example_final
+    )
+
+    # Build output schema
     signature: Optional[ModelSignature] = None
-    if input_example_final is not None:
-        try:
-            if resolved_output_example is not None:
-                signature = infer_signature(input_example_final, resolved_output_example)
-            else:
-                inferred = infer_signature(input_example_final)
-                summary = _load_experiment_summary(scoring_path)
-                output_name = None
-                if isinstance(summary, dict):
-                    output_name = summary.get("target") or summary.get("target_column")
-                if not output_name:
-                    numeric_candidates = [
-                        name
-                        for name, meta in (stats or {}).items()
-                        if isinstance(meta, dict)
-                        and meta.get("stats", {}).get("is_numeric")
-                        and name not in normalized_columns
-                    ]
-                    output_name = (
-                        numeric_candidates[0] if numeric_candidates else "prediction"
-                    )
-                output_schema = Schema([ColSpec(type="double", name=str(output_name))])
-                signature = ModelSignature(inputs=inferred.inputs, outputs=output_schema)
-        except Exception as exc:  # pragma: no cover - defensive
-            _logger.warning("Unable to infer signature from input example: %s", exc)
-            signature = None
+    try:
+        if input_schema is not None and resolved_output_example is not None:
+            # Let MLflow infer outputs from example but keep our input schema
+            inferred = infer_signature(
+                _ensure_pandas_frame(input_example_final) if input_example_final is not None else None,
+                _ensure_pandas_frame(resolved_output_example),
+            )
+            signature = ModelSignature(inputs=input_schema, outputs=inferred.outputs)
+        elif input_schema is not None:
+            # Derive output name from experiment summary or fallback
+            summary = _load_experiment_summary(scoring_path)
+            output_name = None
+            if isinstance(summary, dict):
+                output_name = summary.get("target") or summary.get("target_column")
+            if not output_name:
+                numeric_candidates = [
+                    name
+                    for name, meta in (stats or {}).items()
+                    if isinstance(meta, dict)
+                    and meta.get("stats", {}).get("is_numeric")
+                    and name not in (normalized_columns or [])
+                ]
+                output_name = numeric_candidates[0] if numeric_candidates else "prediction"
+            output_schema = Schema([ColSpec(type="double", name=str(output_name))])
+            signature = ModelSignature(inputs=input_schema, outputs=output_schema)
+    except Exception as exc:  # pragma: no cover - defensive
+        _logger.warning("Unable to construct signature from schema: %s", exc)
+        signature = None
 
     input_example_for_logging: Optional[pd.DataFrame] = None
     if input_example_final is not None:
