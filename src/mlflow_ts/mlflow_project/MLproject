@@ -1,0 +1,26 @@
+name: driverless_inference
+python_env: python_env.yaml
+entry_points:
+  score:
+    parameters:
+      scoring_dir: {type: string, default: "scoring-pipeline"}
+      input_path: path
+      output_path: path
+      apply_data_recipes: {type: string, default: "false"}
+      batch_size: {type: string, default: "0"}
+    command: python scorer_entry.py score --scoring-dir {scoring_dir} --input-path {input_path} --output-path {output_path} --apply-data-recipes {apply_data_recipes} --batch-size {batch_size}
+  log_model:
+    parameters:
+      scoring_dir: {type: string, default: "scoring-pipeline"}
+      artifact_path: {type: string, default: "driverless_ai_model"}
+      registered_model_name: {type: string, default: ""}
+      run_id: {type: string, default: ""}
+      apply_data_recipes: {type: string, default: "false"}
+      scorer_kwargs_json: {type: string, default: "{}"}
+      predict_kwargs_json: {type: string, default: "{}"}
+      extra_artifacts_json: {type: string, default: "{}"}
+      pip_requirements_json: {type: string, default: "[]"}
+      python_env_path: {type: string, default: "__NONE__"}
+      input_path: {type: string, default: "__NONE__"}
+      output_path: {type: string, default: "__NONE__"}
+    command: python scorer_entry.py log-model --scoring-dir {scoring_dir} --artifact-path {artifact_path} --registered-model-name {registered_model_name} --run-id {run_id} --apply-data-recipes {apply_data_recipes} --scorer-kwargs-json {scorer_kwargs_json} --predict-kwargs-json {predict_kwargs_json} --extra-artifacts-json {extra_artifacts_json} --pip-requirements-json {pip_requirements_json} --python-env-path {python_env_path} --input-path {input_path} --output-path {output_path}

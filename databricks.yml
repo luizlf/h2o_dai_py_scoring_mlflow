@@ -1,0 +1,42 @@
+# This is a Databricks asset bundle definition for mlflow_ts.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+bundle:
+  name: mlflow_ts
+  uuid: 6f776c9d-1a5a-44bf-b78a-9dd6bedccfdb
+
+artifacts:
+  python_artifact:
+    type: whl
+    build: uv build --wheel
+
+include:
+  - resources/*.yml
+  - resources/*/*.yml
+
+targets:
+  dev:
+    # The default target uses 'mode: development' to create a development copy.
+    # - Deployed resources get prefixed with '[dev my_user_name]'
+    # - Any job schedules and triggers are paused by default.
+    # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
+    mode: development
+    default: true
+    workspace:
+      host: https://adb-142668661693457.17.azuredatabricks.net
+
+    presets:
+      # Set dynamic_version: true on all artifacts of type "whl".
+      # This makes "bundle deploy" add a timestamp to wheel's version before uploading,
+      # new wheel takes over the previous installation even if actual wheel version is unchanged.
+      # See https://docs.databricks.com/aws/en/dev-tools/bundles/settings
+      artifacts_dynamic_version: true
+
+  prod:
+    mode: production
+    workspace:
+      host: https://adb-142668661693457.17.azuredatabricks.net
+      # We explicitly deploy to /Workspace/Users/luiz.santos@h2o.ai to make sure we only have a single copy.
+      root_path: /Workspace/Users/luiz.santos@h2o.ai/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - user_name: luiz.santos@h2o.ai
+        level: CAN_MANAGE
