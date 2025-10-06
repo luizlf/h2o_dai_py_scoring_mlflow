@@ -12,7 +12,11 @@ import os
 import mlflow
 
 from h2o_dai_py_scoring_mlflow.mlflow_driverless import log_driverless_scoring_pipeline
-from h2o_dai_py_scoring_mlflow.config import get_experiment_path, get_artifact_path, get_scoring_dir
+from h2o_dai_py_scoring_mlflow.config import (
+    get_experiment_path,
+    get_artifact_path,
+    get_scoring_dir,
+)
 
 
 def main() -> None:
@@ -39,10 +43,6 @@ def main() -> None:
 
         print("Logged MLflow run:", active_run.info.run_id)
         print("Model URI:", model_info.model_uri)
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":

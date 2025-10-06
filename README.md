@@ -10,16 +10,44 @@ Key outcomes:
 
 **What’s Included**
 
-- MLflow helper module and CLI for packaging and logging the scoring pipeline: `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/deployment.py`.
+- MLflow helper module for packaging and logging the scoring pipeline: `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/deployment.py`.
 - MLflow Project template that guarantees a Python 3.8 environment: `src/h2o_dai_py_scoring_mlflow/mlflow_project/`.
-- Databricks Bundle job that runs the end‑to‑end logging flow: `resources/h2o_dai_py_scoring_mlflow.job.yml`.
+- Databricks Bundle job (single wheel task) to log the model: `resources/h2o_dai_py_scoring_mlflow.job.yml`.
 - Early runtime fixes via `src/h2o_dai_py_scoring_mlflow/sitecustomize.py` to avoid import/runtime conflicts on Databricks.
+
+## Databricks‑Only Usage (No Local Python)
+
+If your users can only run Python inside Databricks, ship these two artifacts:
+
+- `dist/h2o_dai_py_scoring_mlflow.zip` – a self‑contained Python package (zip importable)
+- `notebooks/driverless_ai_packager.py` – a Databricks notebook that:
+  - adds the zip to `sys.path`
+  - logs the scoring pipeline as an MLflow `pyfunc`
+  - optionally registers a model
+  - optionally updates a Model Serving endpoint (requires PAT)
+
+Steps (user):
+- Upload `dist/h2o_dai_py_scoring_mlflow.zip` to `dbfs:/FileStore/h2o_dai_py_scoring_mlflow.zip` (or any DBFS path), or import it into your workspace (Databricks unzips into a folder containing `src/`).
+- Upload your Driverless scoring bundle (folder or `.zip`) to DBFS (e.g., `dbfs:/FileStore/scoring-pipeline.zip`)
+- Import `notebooks/driverless_ai_packager.py` into your workspace and run it:
+  - Edit the first cell variables (module path to ZIP or folder with `src/`, scoring dir, experiment path, artifact path, license key)
+  - Optionally set a Registered Model name
+  - Optionally set Serving endpoint name + host + token to roll the endpoint
+
+Notes:
+- The notebook forces conda by default so `libmagic` is included; no cluster‑level setup is needed.
+- If you provide `registered_model_name`, the notebook registers a new version using the run’s model URI.
+- If you also provide host/token/endpoint, the notebook updates the endpoint config and waits for completion.
+- If you connect a Deployment Job to a UC model (next section), new versions or stage changes can automatically trigger a deployment flow.
+- References: `notebooks/driverless_ai_packager.py:1`
+- After registering a model (and if `REGISTERED_MODEL_NAME` plus credentials are available), the notebook now waits for the linked Deployment Job to push the new version and performs a smoke-test invocation on the Serving endpoint via `WorkspaceClient`.
 
 ## How It Works
 
 The logger builds an MLflow `pyfunc` model that embeds your exported DAI scoring pipeline, along with a self‑contained Python 3.8 environment:
 
 - Pip requirements are synthesized from the exported `requirements.txt` in the scoring bundle while ignoring wheel references there and instead enumerating the actual wheels present on disk. Default excludes avoid fragile packages for CPU scoring (e.g., `h2o4gpu`, `pyorc` unless a wheel is present).
+- If present, selected `pip` entries from `scoring-pipeline/environment.yml` are merged into the model’s requirements to cover small runtime helpers that exports sometimes miss (default allowlist: `psutil`, `tabulate`, `cgroupspy`). Configure via `H2O_DAI_MLFLOW_ENV_YAML_PIP_ALLOWLIST` or disable with `H2O_DAI_MLFLOW_ENV_YAML_PIP_DISABLE=1`.
 - Wheels are embedded under `artifacts/scoring-pipeline` (hyphenated path) so pip paths resolve consistently inside Serving containers.
 - Compatibility shims are added for Databricks compatibility under Python 3.8: `importlib-resources==5.12.0` and `pyspark==3.3.2` (configurable via env vars).
 - A `sitecustomize.py` is automatically added at model load time so Python imports it before any library imports to:
@@ -28,10 +56,11 @@ The logger builds an MLflow `pyfunc` model that embeds your exported DAI scoring
   - Add a robust `fileno()` shim for the wrapped stdout/stderr that some native libs expect.
 - The pyfunc wrapper defers importing the Driverless Scorer until `predict()` and patches streams before import, preventing `'StreamToLogger' object has no attribute 'fileno'`.
 - During logging, the helper temporarily sets `MLFLOW_VALIDATE_SERVING_INPUT=false` to avoid strict validation issues when attaching input examples; the original value is restored afterwards. See `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/deployment.py:798`.
+- The generated conda env includes `libmagic` and hard‑pins `libopenblas=0.3.30` (override with `H2O_DAI_MLFLOW_OPENBLAS_VERSION`) plus `libgfortran`/`libgcc-ng` to stabilize BLAS loading in Serving.
+- We force installing `psutil` from PyPI (pip) in the model environment to avoid the limited conda `psutil` variant that can miss `RLIM_INFINITY`. You can override the version with `H2O_DAI_MLFLOW_PSUTIL_VERSION`.
 - Input/output examples and signature:
-  - Input schema is derived from the scoring pipeline itself (typed columns parsed from `example.py`), falling back to `training_data_column_stats.json`, and finally to any provided input example.
-  - If you pass example dataframes/paths, they are logged; output schema is inferred when an output example is provided, otherwise the target column is inferred from the experiment summary (fallback: a numeric `prediction`).
-  - This explicit signature enables MLflow input validation without relying on function type hints.
+  - On MLflow >= 2.20.0, the PythonModel uses the `TypeFromExample` type hint and your input example for validation and signature inference. In this mode, we do not pass `signature` explicitly (per docs) and rely on hints + example.
+  - On older MLflow, we attach an explicit `ModelSignature` derived from the scoring pipeline (typed columns parsed from `example.py`, fallback to `training_data_column_stats.json`). If you pass examples, output schema is inferred or falls back to the target column.
 
 Under the hood the logger will either:
 
@@ -54,7 +83,6 @@ Relevant code:
   - `sitecustomize.py` – runtime shims loaded automatically inside model env. See `src/h2o_dai_py_scoring_mlflow/sitecustomize.py:1`.
   - `mlflow_driverless/`
     - `deployment.py` – all packaging logic, CLI, and pyfunc model wrapper. See `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/deployment.py:1`.
-    - `README.md` – extra CLI usage notes. See `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/README.md:1`.
   - `mlflow_project/` – MLflow Project that enforces Python 3.8 for packaging and batch scoring.
     - `MLproject` – entry points `score` and `log_model`. See `src/h2o_dai_py_scoring_mlflow/mlflow_project/MLproject:1`.
     - `python_env.yaml` – Python 3.8.12 + dependencies used by the project. See `src/h2o_dai_py_scoring_mlflow/mlflow_project/python_env.yaml:1`.
@@ -70,14 +98,14 @@ Relevant code:
 
 ## Building and Deploying with Databricks Bundles
 
-This repo is configured as a Databricks Bundle. The main job does two tasks: run a notebook (optional) and then execute the wheel entry point that logs the model.
+This repo is configured as a Databricks Bundle. The main job executes a single wheel task that logs the model.
 
 1. Build the wheel and deploy the bundle:
 
 - `uv build --wheel`
 - `databricks bundle deploy`
 
-2. Run the logging job (wheel task only):
+2. Run the logging job:
 
 - `databricks bundle run h2o_dai_py_scoring_mlflow_job --only main_task`
 
@@ -101,7 +129,7 @@ Notes:
 - If not on Python 3.8, the helper will automatically spawn an MLflow Project run that pins Python 3.8 to perform the logging.
 - You can also pass a `.zip` scoring export; it will be extracted to a temp folder automatically.
 
-See the module doc for details: `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/README.md:1`.
+See implementation details in: `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/deployment.py`.
 
 ## Batch Scoring via MLflow Project
 
@@ -142,9 +170,47 @@ Rolling a new version (idempotent):
 
 Operational convention: this process is safe and idempotent. When packaging code changes, always roll a new version and update your serving endpoint without waiting for additional confirmation; leave the endpoint in `READY` state.
 
+## MLflow 3.0 Deployment Job (Databricks)
+
+Databricks supports MLflow 3.0 Deployment Jobs that you connect to a Unity Catalog (UC) model. When connected, the job can be triggered automatically on model events (for example, new version created or stage changes). The job’s Deployment task typically updates or creates a Serving endpoint for that version.
+
+Included notebooks:
+- Create job: `notebooks/create-deployment-job.py:1`
+  - Creates a Databricks Job with a single `Deployment` task (a notebook task).
+  - Parameters: `model_name`, `model_version` (both passed to the Deployment notebook).
+  - Prints the new job ID and instructions to connect the job to your UC Model.
+  - Optionally connects the job programmatically via MLflow’s Registry client by setting `deployment_job_id` on the model.
+- Deployment task: `notebooks/deployment.py:1`
+  - Expects `model_name` and `model_version` as job parameters.
+  - Uses the Databricks SDK to create or update a Serving endpoint with a Served Entity pointing at the UC model/version.
+  - Default endpoint name is derived from `model_name` and suffixed with `-sr` (adjust in the notebook if needed).
+
+Recommended workflow
+- One‑time setup
+  - Run `notebooks/create-deployment-job.py` and set:
+    - `model_name` to your UC model (for example, `catalog.schema.h2o_dai_model`).
+    - `model_version` to a known version to validate the job end‑to‑end.
+    - `deployment_notebook_path` to the workspace path of `notebooks/deployment.py`.
+  - Connect the created job to your UC model in the Model UI, or run the last cell to connect programmatically. See: Azure Databricks “Connect a deployment job to a model”.
+  - Choose triggers (for example, run on “New model version” and/or on stage transitions like “Promoted to Production”).
+- Day‑to‑day
+  - Use `notebooks/driverless_ai_packager.py:1` to log and register a new version.
+  - When a connected event occurs, the Deployment Job runs `notebooks/deployment.py` with the proper parameters and updates/creates the Serving endpoint.
+  - The packager notebook waits for the endpoint to report the new version via `WorkspaceClient` (following the Unity Catalog credential guidance) and performs a smoke-test invocation once it is `READY`.
+  - Ensure the endpoint has required environment variables (for example, `DRIVERLESS_AI_LICENSE_KEY`). Set them once in the endpoint UI or extend `notebooks/deployment.py` to manage them.
+
+Requirements and tokens
+- The notebooks use the Databricks Python SDK; ensure `DATABRICKS_HOST` and `DATABRICKS_TOKEN` (or workspace auth via cluster configuration) are available to the job.
+- The model must be a Unity Catalog model (`catalog.schema.name`).
+- Docs:
+  - Deployment job connection (Azure): https://learn.microsoft.com/azure/databricks/mlflow/deployment-job#connect
+  - Manage model lifecycle (Azure): https://learn.microsoft.com/azure/databricks/machine-learning/manage-model-lifecycle/
+
 ## Notebook Inference with mlflow.models.predict
 
-On Databricks, the child Python process used by `mlflow.models.predict` can import DBR’s system PySpark built for a different Python (3.12) before the model’s Python 3.8 env initializes. Use the following pattern to avoid import issues and store virtualenvs in a driver‑writable path:
+On Databricks, the child Python process used by `mlflow.models.predict` can import DBR’s system PySpark built for a different Python (3.12) before the model’s Python 3.8 env initializes. This template injects safe env variables into the model’s conda environment so you don’t need to pass `extra_envs`.
+
+Use the conda env manager when predicting:
 
 ```python
 import os, mlflow
@@ -153,20 +219,10 @@ run_id = "<run_id>"  # replace with your run ID
 artifact_path = os.environ.get("H2O_DAI_MLFLOW_ARTIFACT_PATH", "h2o_dai_scoring_pyfunc")
 model_uri = f"runs:/{run_id}/{artifact_path}"
 
-os.environ["MLFLOW_ENV_ROOT"] = "/local_disk0/.ephemeral_nfs/user_tmp_data/mlflow_envs"
-
-extra_envs = {
-    "PYTHONPATH": "",
-    "SPARK_HOME": "",
-    "PYSPARK_PYTHON": "",
-    "PYSPARK_DRIVER_PYTHON": "",
-}
-
 preds = mlflow.models.predict(
     model_uri=model_uri,
     input_data={"state": ["CA"], "week_start": ["2020-05-08"], "unweighted_ili": [None]},
-    env_manager="virtualenv",
-    extra_envs=extra_envs,
+    env_manager="conda",
 )
 ```
 
@@ -187,15 +243,19 @@ Packaging toggles (consumed by `mlflow_driverless`):
 - `H2O_DAI_MLFLOW_DISABLE_PYSPARK` – set to `1` to skip adding `pyspark`.
 - `H2O_DAI_MLFLOW_FORCE_CONDA` – defaults to enabled; the logger synthesizes a conda `conda_env` so non‑pip deps (e.g., `libmagic`) are installed in Serving. Set to `0` to disable if you must use a pip‑only env. See `src/h2o_dai_py_scoring_mlflow/config.py:64`.
 - `H2O_DAI_MLFLOW_DISABLE_LIBMAGIC` – set to `1` to skip adding `libmagic` to the conda env (not recommended; required by `python-magic`).
+- `H2O_DAI_MLFLOW_DISABLE_OPENBLAS` – set to `1` to skip adding `libopenblas` to the conda env. By default the conda env includes `libopenblas` so OpenBLAS is available for numpy/h2oaicore in Serving.
+- `H2O_DAI_MLFLOW_OPENBLAS_VERSION` – version pin for `libopenblas` (default `0.3.30`).
+- `H2O_DAI_MLFLOW_PSUTIL_VERSION` – optional version pin for `psutil` (PyPI) installed via pip to override conda’s psutil.
 - `H2O_DAI_MLFLOW_DISABLE_PROJECT` / `H2O_DAI_MLFLOW_FORCE_PROJECT` – control whether to force or skip launching the MLflow Project when not on Python 3.8. See `src/h2o_dai_py_scoring_mlflow/mlflow_driverless/deployment.py:505`.
 - `H2O_DAI_MLFLOW_PROJECT_MODE` – internal flag set when already inside the project‑managed environment.
 - `H2O_DAI_MLFLOW_BUILD_PYORC` – set `0` to skip building a `pyorc` wheel in project mode; default builds a wheel to avoid source builds in Serving. See `src/h2o_dai_py_scoring_mlflow/mlflow_project/scorer_entry.py:418`.
 - `H2O_DAI_MLFLOW_PYORC_VERSION` – preferred `pyorc` version to build (default `0.9.0`).
+- `DEPLOY_WAIT_TIMEOUT_S` / `DEPLOY_WAIT_POLL_S` – optional notebook overrides for how long the packager waits for the Deployment Job and Serving endpoint to update (defaults: 900 s timeout, 10 s poll).
 
 Runtime:
 
 - `DRIVERLESS_AI_LICENSE_KEY` / `DRIVERLESS_AI_LICENSE_FILE` – required by the scoring pipeline at runtime.
-- `MLFLOW_ENV_ROOT` – override where MLflow creates per‑model virtualenvs (use a writable path on DBR).
+- `MLFLOW_ENV_ROOT` – optional override for where MLflow creates per‑model environments (use a writable path on DBR). Not required when using conda + injected variables, but can be helpful to control disk usage.
 
 ## Minimal Runbook
 
@@ -213,6 +273,12 @@ Runtime:
   - Use the `mlflow.models.predict` pattern above to blank the DBR Spark env and set `MLFLOW_ENV_ROOT`.
 - `StreamToLogger` object has no attribute `fileno`:
   - Use a recently logged model; packaging includes early stream shims in both project and model environments.
+- OpenBLAS or libmagic not found in Serving:
+  - The logged model’s conda env includes `libopenblas` and `libmagic` by default. The model’s `sitecustomize.py` injects the environment’s `lib` dir into `LD_LIBRARY_PATH` and prints diagnostics at load time.
+  - Set `H2O_DAI_MLFLOW_DIAG=1` (default) to emit diagnostics in Serving logs (e.g., `find_library('openblas')`, contents of `$CONDA_PREFIX/lib`).
+- AttributeError: module 'psutil' has no attribute 'RLIM_INFINITY':
+  - Newer `psutil` versions don’t expose this constant; the model’s `sitecustomize.py` shims it from Python’s `resource` module. Re‑log to pick up the shim if you see this.
+  - As an additional safeguard, if any `psutil` RLIMIT constants are missing (`RLIMIT_*`, `RLIM_INFINITY`), the model defines them as `None` at import time to maintain compatibility with older Driverless code paths.
 
 ## Notes and Limitations
 

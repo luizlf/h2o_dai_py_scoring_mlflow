@@ -4,7 +4,7 @@ version = "0.0.2"
 authors = [{ name = "luiz.santos@h2o.ai" }]
 requires-python = ">= 3.12"
 dependencies = [
-    "databricks-connect~=16.4",   # Ensure this version matches your Databricks cluster runtime
+    "databricks-connect~=16.4", # Ensure this version matches your Databricks cluster runtime
     "mlflow>=3.4.0",
     "pandas>=2.3.3",
     "pandas-stubs>=2.3.2.250926",

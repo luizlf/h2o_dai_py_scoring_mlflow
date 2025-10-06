@@ -35,15 +35,27 @@ if stdlib_resources is not None and backport_resources is not None:
 import mlflow
 import pandas as pd
 
-from h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment import (
-    log_driverless_scoring_pipeline_in_project,
-)
-from h2o_dai_py_scoring_mlflow.config import (
-    PROJECT_MODE_ENV,
-    get_build_pyorc_enabled,
-    get_pyorc_version,
-    get_scoring_env_var_aliases,
-)
+# Note: Import the logging helper lazily only when needed (log-model command)
+# so that the 'score' entrypoint can run without having the package installed.
+# Define minimal config locally so the 'score' entrypoint does not require the
+# h2o_dai_py_scoring_mlflow package to be importable.
+PROJECT_MODE_ENV = "H2O_DAI_MLFLOW_PROJECT_MODE"
+
+def get_build_pyorc_enabled() -> bool:
+    return os.environ.get("H2O_DAI_MLFLOW_BUILD_PYORC", "1").strip() != "0"
+
+
+def get_pyorc_version() -> str:
+    return os.environ.get("H2O_DAI_MLFLOW_PYORC_VERSION", "0.9.0").strip()
+
+
+def get_scoring_env_var_aliases() -> list[str]:
+    return [
+        "SCORING_PIPELINE_DIR",
+        "DRIVERLESS_SCORING_PIPELINE_DIR",
+        "DRIVERLESS_SCORING_DIR",
+        "DRIVERLESS_AI_SCORING_PIPELINE_DIR",
+    ]
 
 
 SCORING_WHEEL_MARKER_ENV = "H2O_DAI_MLFLOW_WHEEL_SOURCE"
@@ -206,6 +218,57 @@ def _install_scoring_wheels(scoring_dir: Path, marker: str) -> None:
     os.environ[SCORING_WHEEL_MARKER_ENV] = marker
 
 
+def _auto_fix_runtime_deps(module_name: str) -> None:
+    """Attempt to import the scorer module and automatically install small
+    runtime dependencies on ModuleNotFoundError.
+
+    This reduces iterative failures in Project runs by installing a known set
+    of lightweight packages when they're missing (e.g., cgroupspy, psutil,
+    argon2-cffi, tabulate, pyyaml). Controlled by
+    H2O_DAI_MLFLOW_AUTO_FIX_RUNTIME_DEPS=1 (default enabled).
+    """
+    if os.environ.get("H2O_DAI_MLFLOW_AUTO_FIX_RUNTIME_DEPS", "1").strip() == "0":
+        return
+
+    mapping = {
+        "psutil": "psutil==5.8.0",
+        "cgroupspy": "cgroupspy==0.2.2",
+        "argon2": "argon2-cffi",
+        "argon2.low_level": "argon2-cffi",
+        "yaml": "pyyaml",
+        "PIL": "Pillow",
+        "cv2": "opencv-python-headless",
+        "sklearn": "scikit-learn",
+        "Crypto": "pycryptodome",
+        "magic": "python-magic",
+        "tabulate": "tabulate==0.9.0",
+    }
+
+    tried: set[str] = set()
+    for _ in range(10):
+        try:
+            import importlib as _il
+
+            _il.import_module(module_name)
+            return
+        except ModuleNotFoundError as exc:  # missing a pure-python dependency
+            name = getattr(exc, "name", "") or ""
+            base = name.split(".")[0] if name else ""
+            spec = mapping.get(name) or mapping.get(base) or base
+            if not spec or spec in tried:
+                break
+            tried.add(spec)
+            cmd = [sys.executable, "-m", "pip", "install", spec]
+            try:
+                subprocess.check_call(cmd)
+            except subprocess.CalledProcessError:
+                # best effort; continue to next
+                continue
+        except Exception:
+            # For non-ModuleNotFoundError (e.g., OSError: lib not found), just stop.
+            break
+
+
 def _discover_scorer_module_name(scoring_dir: Path) -> str:
     candidates = sorted(scoring_dir.glob("scoring_h2oai_experiment_*.whl"))
     if not candidates:
@@ -312,6 +375,14 @@ def _score_command(args: argparse.Namespace) -> int:
                             continue
         except Exception:  # best-effort
             pass
+        # Proactively auto-fix small runtime deps by attempting to import the scorer
+        # and installing known missing modules.
+        try:
+            mod_name = _discover_scorer_module_name(scoring_dir)
+            _auto_fix_runtime_deps(mod_name)
+        except Exception:
+            pass
+
         scorer_cls = _load_scorer_class(scoring_dir)
         scorer = scorer_cls()
         try:
@@ -351,6 +422,9 @@ def _load_json(value: str, default: Optional[Any] = None) -> Any:
 
 
 def _log_model_command(args: argparse.Namespace) -> int:
+    from h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment import (
+        log_driverless_scoring_pipeline_in_project,
+    )
     apply_data_recipes = _parse_bool(args.apply_data_recipes)
     run_id = args.run_id or None
     registered_name = args.registered_model_name or None

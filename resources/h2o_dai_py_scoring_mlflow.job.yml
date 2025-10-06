@@ -10,16 +10,8 @@ resources:
           unit: DAYS
 
       tasks:
-        - task_key: notebook_task
-          existing_cluster_id: 0924-195014-mkuozp2j
-          notebook_task:
-            notebook_path: ../src/notebook.ipynb
-
         - task_key: main_task
           existing_cluster_id: 0924-195014-mkuozp2j
-          depends_on:
-            - task_key: notebook_task
-
           python_wheel_task:
             package_name: h2o_dai_py_scoring_mlflow
             entry_point: main
