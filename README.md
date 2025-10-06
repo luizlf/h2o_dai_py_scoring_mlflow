@@ -3,6 +3,7 @@
 Package and run an H2O Driverless AI (DAI) Python scoring pipeline as an MLflow pyfunc model under Python 3.8 on Databricks. The model is logged with a self-contained environment so you can score with mlflow.models.predict.
 
 Tested on
+
 - Databricks ML Runtime 16.4
 - H2O Driverless AI 1.10.7.3
 
@@ -16,7 +17,7 @@ Tested on
   - `REGISTERED_MODEL_NAME` (optional).
 - Run the cells top to bottom. It logs the model and shows how to call `mlflow.models.predict`.
 
-## Predict (conda env)
+## Predict (virtualenv)
 
 ```python
 import os, mlflow
@@ -27,8 +28,8 @@ model_uri = f"runs:/{run_id}/{artifact_path}"
 
 preds = mlflow.models.predict(
     model_uri=model_uri,
-    input_data={"state": ["CA"], "week_start": ["2020-05-08"], "unweighted_ili": [None]},
-    env_manager="conda",
+    input_data={"state": ["California"], "week_start": ["2020-05-08"], "unweighted_ili": [None]},
+    env_manager="virtualenv",
 )
 print(preds)
 ```
@@ -36,10 +37,12 @@ print(preds)
 ## Configuration
 
 Minimum
+
 - `DRIVERLESS_AI_LICENSE_KEY` or `DRIVERLESS_AI_LICENSE_FILE` – required by the scoring pipeline at runtime.
 - `SCORING_PIPELINE_DIR` – absolute path to `scoring-pipeline` (zip or folder). Alternative: `H2O_DAI_MLFLOW_WORKSPACE_SCORING_DIR`.
 
 Optional
+
 - `H2O_DAI_MLFLOW_EXPERIMENT` – MLflow experiment path (default `/Shared/h2o_dai_py_scoring_mlflow`).
 - `H2O_DAI_MLFLOW_ARTIFACT_PATH` – artifact path for the logged model (default `h2o_dai_scoring_pyfunc`).
 
@@ -53,7 +56,7 @@ Optional
 ## Troubleshooting (quick)
 
 - License missing: set `DRIVERLESS_AI_LICENSE_KEY` or `DRIVERLESS_AI_LICENSE_FILE`.
-- Use `env_manager="conda"` for `mlflow.models.predict`.
+- Use `env_manager="virtualenv"` for `mlflow.models.predict`.
 - If predicting in a shared cluster, set `MLFLOW_ENV_ROOT` to a writable location.
 
 ## Repo contents
