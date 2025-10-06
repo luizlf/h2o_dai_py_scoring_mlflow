@@ -56,9 +56,10 @@ _OPENBLAS_PRELOADED: _t.Optional[str] = None
 # errors/warnings in older environments (e.g., Serving images).
 _USE_TYPEHINTS: bool = False
 try:
-    _USE_TYPEHINTS = Version(mlflow.__version__) >= Version("2.20.0") and os.environ.get(
-        "H2O_DAI_MLFLOW_DISABLE_TYPEHINTS", "0"
-    ).strip() != "1"
+    _USE_TYPEHINTS = (
+        Version(mlflow.__version__) >= Version("2.20.0")
+        and os.environ.get("H2O_DAI_MLFLOW_DISABLE_TYPEHINTS", "0").strip() != "1"
+    )
     if _USE_TYPEHINTS:
         from mlflow.types.type_hints import TypeFromExample  # type: ignore
 except Exception:
@@ -74,14 +75,20 @@ def _patch_streams_fileno() -> None:
             def __init__(self, base, fd):
                 self._b = base
                 self._fd = fd
+
             def fileno(self):
                 return self._fd
+
             def __getattr__(self, name):
                 return getattr(self._b, name)
 
-        if not hasattr(_sys.stdout, "fileno") or not callable(getattr(_sys.stdout, "fileno", None)):
+        if not hasattr(_sys.stdout, "fileno") or not callable(
+            getattr(_sys.stdout, "fileno", None)
+        ):
             _sys.stdout = _WithFileno(_sys.stdout, 1)  # type: ignore
-        if not hasattr(_sys.stderr, "fileno") or not callable(getattr(_sys.stderr, "fileno", None)):
+        if not hasattr(_sys.stderr, "fileno") or not callable(
+            getattr(_sys.stderr, "fileno", None)
+        ):
             _sys.stderr = _WithFileno(_sys.stderr, 2)  # type: ignore
     except Exception:
         pass
@@ -112,7 +119,21 @@ def _ensure_native_libs_and_diagnose() -> None:
             prefixes.append(sys.prefix)
 
             # 1) Build a search list for shared libs
-            prefer_numpy = os.environ.get("H2O_DAI_MLFLOW_PREFER_NUMPY_OPENBLAS", "0").strip() != "0"
+            prefer_numpy = (
+                os.environ.get("H2O_DAI_MLFLOW_PREFER_NUMPY_OPENBLAS", "0").strip()
+                != "0"
+            )
+            # If a forced OpenBLAS path is configured (or default conda path exists), do not prefer numpy libs
+            forced_env = os.environ.get(
+                "H2O_DAI_MLFLOW_FORCE_OPENBLAS_PATH", ""
+            ).strip()
+            default_conda_path = (
+                "/opt/conda/envs/mlflow-env/lib/libopenblasp-r0.3.30.so"
+            )
+            forced_exists = bool(forced_env) and os.path.isfile(forced_env)
+            default_exists = os.path.isfile(default_conda_path)
+            if forced_exists or default_exists:
+                prefer_numpy = False
             search_dirs: List[str] = []
             for p in prefixes:
                 if not p:
@@ -123,32 +144,37 @@ def _ensure_native_libs_and_diagnose() -> None:
             # Include numpy’s private .libs folder (manylinux wheels)
             try:
                 import numpy as _np
-                np_libs = os.path.join(os.path.dirname(_np.__file__), "..", "numpy.libs")
+
+                np_libs = os.path.join(
+                    os.path.dirname(_np.__file__), "..", "numpy.libs"
+                )
                 np_libs = os.path.abspath(np_libs)
-                if os.path.isdir(np_libs):
+                if os.path.isdir(np_libs) and prefer_numpy:
                     # If preferring numpy, restrict search to numpy.libs only
-                    if prefer_numpy:
-                        search_dirs = [np_libs]
-                    else:
-                        search_dirs.insert(0, np_libs)
+                    search_dirs = [np_libs]
             except Exception:
                 pass
 
-            # 2) Ensure LD_LIBRARY_PATH contains core env lib and numpy.libs
+            # 2) Compose LD_LIBRARY_PATH; in strict mode, only allow our search dirs
+            strict_ld = os.environ.get("H2O_DAI_MLFLOW_STRICT_LD", "1").strip() != "0"
             if search_dirs:
-                cur = os.environ.get("LD_LIBRARY_PATH", "")
-                parts = [x for x in cur.split(":") if x]
-                changed = False
-                for d in search_dirs:
-                    if d not in parts:
-                        parts.append(d)
-                        changed = True
-                if changed:
-                    os.environ["LD_LIBRARY_PATH"] = ":".join(parts)
+                if strict_ld:
+                    os.environ["LD_LIBRARY_PATH"] = ":".join(search_dirs)
+                else:
+                    cur = os.environ.get("LD_LIBRARY_PATH", "")
+                    parts = [x for x in cur.split(":") if x]
+                    changed = False
+                    for d in search_dirs:
+                        if d not in parts:
+                            parts.append(d)
+                            changed = True
+                    if changed:
+                        os.environ["LD_LIBRARY_PATH"] = ":".join(parts)
 
             # 3) Preload OpenBLAS explicitly if present on disk (once)
             try:
-                import ctypes, ctypes.util
+                import ctypes
+                import ctypes.util
             except Exception:
                 ctypes = None  # type: ignore
 
@@ -168,17 +194,19 @@ def _ensure_native_libs_and_diagnose() -> None:
                             _log_diag(f"LD_PRELOAD updated with {path}")
                     except Exception:
                         pass
-                    ctypes.CDLL(path, mode=getattr(ctypes, 'RTLD_GLOBAL', 0))
+                    ctypes.CDLL(path, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
                     _log_diag(f"preloaded openblas: {path}")
                     _OPENBLAS_PRELOADED = path
                     # Patch ctypes.util.find_library to return our path for openblas queries
                     try:
                         orig_find = ctypes.util.find_library  # type: ignore[attr-defined]
+
                         def _patched(name: str):
                             n = (name or "").lower()
                             if "openblas" in n and os.path.exists(path):
                                 return path
                             return orig_find(name)
+
                         ctypes.util.find_library = _patched  # type: ignore[assignment]
                     except Exception:
                         pass
@@ -187,21 +215,29 @@ def _ensure_native_libs_and_diagnose() -> None:
                     _log_diag(f"failed to preload {path}: {exc}")
                     return False
 
-            forced_path = os.environ.get("H2O_DAI_MLFLOW_FORCE_OPENBLAS_PATH", "").strip()
-            if not forced_path:
-                # Provide a reasonable default for Databricks Serving images
-                default_conda_path = "/opt/conda/envs/mlflow-env/lib/libopenblasp-r0.3.30.so"
-                if os.path.isfile(default_conda_path):
-                    forced_path = default_conda_path
+            forced_path = os.environ.get(
+                "H2O_DAI_MLFLOW_FORCE_OPENBLAS_PATH", ""
+            ).strip()
+            if not forced_path and os.path.isfile(default_conda_path):
+                forced_path = default_conda_path
             if ctypes and forced_path and os.path.isfile(forced_path):
                 _try_load(forced_path)
-            elif ctypes and search_dirs and os.environ.get("H2O_DAI_MLFLOW_PRELOAD_OPENBLAS", "1").strip() != "0":
+            elif (
+                ctypes
+                and search_dirs
+                and os.environ.get("H2O_DAI_MLFLOW_PRELOAD_OPENBLAS", "1").strip()
+                != "0"
+            ):
                 loaded = False
                 patterns = ("libopenblas", "libopenblas64_")
                 for d in search_dirs:
                     try:
                         for fname in os.listdir(d):
-                            if any(fname.startswith(p) for p in patterns) and (fname.endswith('.so') or '.so.' in fname or fname.endswith('.dylib')):
+                            if any(fname.startswith(p) for p in patterns) and (
+                                fname.endswith(".so")
+                                or ".so." in fname
+                                or fname.endswith(".dylib")
+                            ):
                                 if _try_load(os.path.join(d, fname)):
                                     loaded = True
                                     break
@@ -222,7 +258,12 @@ def _ensure_native_libs_and_diagnose() -> None:
         cfg = getattr(_np, "__config__", None)
         info = {}
         if cfg is not None:
-            for key in ("openblas_info", "blas_ilp64_info", "blas_opt_info", "lapack_opt_info"):
+            for key in (
+                "openblas_info",
+                "blas_ilp64_info",
+                "blas_opt_info",
+                "lapack_opt_info",
+            ):
                 try:
                     info[key] = bool(cfg.get_info(key))
                 except Exception:
@@ -230,8 +271,10 @@ def _ensure_native_libs_and_diagnose() -> None:
         _log_diag(f"numpy={_np.__version__} build_info={info}")
     except Exception:
         pass
-    _log_diag(f"sys.prefix={sys.prefix} CONDA_PREFIX={os.environ.get('CONDA_PREFIX','')}")
-    _log_diag(f"LD_LIBRARY_PATH={os.environ.get('LD_LIBRARY_PATH','')}")
+    _log_diag(
+        f"sys.prefix={sys.prefix} CONDA_PREFIX={os.environ.get('CONDA_PREFIX', '')}"
+    )
+    _log_diag(f"LD_LIBRARY_PATH={os.environ.get('LD_LIBRARY_PATH', '')}")
     # Report find_library results (do not dlopen to avoid mixing backends)
     try:
         for name in ("openblas", "blas", "lapack", "magic"):
@@ -253,11 +296,15 @@ def _ensure_psutil_compat() -> None:
     """
     try:
         import psutil  # type: ignore
+
         # Prefer resource for RLIM_INFINITY value when present
         if not hasattr(psutil, "RLIM_INFINITY"):
             try:
                 import resource as _resource  # type: ignore
-                setattr(psutil, "RLIM_INFINITY", getattr(_resource, "RLIM_INFINITY", None))
+
+                setattr(
+                    psutil, "RLIM_INFINITY", getattr(_resource, "RLIM_INFINITY", None)
+                )
             except Exception:
                 try:
                     setattr(psutil, "RLIM_INFINITY", None)
@@ -413,6 +460,7 @@ def _extract_schema_from_example(example_path: Path) -> List[Tuple[str, str]]:
 
     # Pattern for dict(name='...', type='...') style
     import re as _re
+
     pattern1 = _re.compile(
         r"dict\s*\(.*?name\s*=\s*['\"]([^'\"]+)['\"].*?type\s*=\s*['\"]([^'\"]+)['\"].*?\)",
         _re.IGNORECASE | _re.DOTALL,
@@ -558,6 +606,7 @@ class _DriverlessAIScoringModelBase(mlflow.pyfunc.PythonModel):
             return _ensure_pandas_frame(predictions)
         except Exception:
             import traceback as _tb
+
             _log_diag("scoring failed:\n" + _tb.format_exc())
             raise
 
@@ -610,6 +659,7 @@ class _DriverlessAIScoringModelBase(mlflow.pyfunc.PythonModel):
             self.input_columns = self._normalize_column_labels(raw_columns)
         except Exception:
             import traceback as _tb
+
             _log_diag("scorer initialization failed:\n" + _tb.format_exc())
             raise
 
@@ -627,6 +677,7 @@ class _DriverlessAIScoringModelBase(mlflow.pyfunc.PythonModel):
 
 # Define the public model class with or without type hints depending on MLflow.
 if _USE_TYPEHINTS:
+
     class DriverlessAIScoringModel(_DriverlessAIScoringModelBase):
         def predict(
             self,
@@ -635,6 +686,7 @@ if _USE_TYPEHINTS:
         ) -> pd.DataFrame:
             return self._predict_impl(model_input)
 else:
+
     class DriverlessAIScoringModel(_DriverlessAIScoringModelBase):
         def predict(
             self,
@@ -755,12 +807,16 @@ def build_pip_requirements(
     psutil_ver = os.environ.get("H2O_DAI_MLFLOW_PSUTIL_VERSION", "").strip()
     psutil_spec = f"psutil=={psutil_ver}" if psutil_ver else "psutil"
 
-    combined = package_specs + env_yaml_specs + discovered_wheels + compat_pkgs + [psutil_spec]
+    combined = (
+        package_specs + env_yaml_specs + discovered_wheels + compat_pkgs + [psutil_spec]
+    )
     if include_mlflow:
         combined.append(f"mlflow=={mlflow.__version__}")
     if extra_requirements:
         # Drop any excluded packages that may have been explicitly added
-        combined.extend([r for r in extra_requirements if _pkg_name(r) not in exclude_pkgs])
+        combined.extend(
+            [r for r in extra_requirements if _pkg_name(r) not in exclude_pkgs]
+        )
 
     return _deduplicate_preserve_order(combined)
 
@@ -801,7 +857,9 @@ def build_conda_env_config(python_env: Mapping[str, Any]) -> Dict[str, Any]:
     dependencies.extend(build_deps)
     # Ensure libmagic is present for python-magic (h2oaicore depends on it)
     if not is_libmagic_disabled():
-        if not any(str(d).startswith("libmagic") for d in dependencies if isinstance(d, str)):
+        if not any(
+            str(d).startswith("libmagic") for d in dependencies if isinstance(d, str)
+        ):
             dependencies.append("libmagic")
     # Ensure OpenBLAS shared library is present for numpy/h2oaicore openblas detection
     if not is_openblas_disabled():
@@ -815,13 +873,23 @@ def build_conda_env_config(python_env: Mapping[str, Any]) -> Dict[str, Any]:
         version = get_openblas_version()
         dependencies.append(f"libopenblas={version}" if version else "libopenblas")
         # Also include toolchain libs that OpenBLAS often requires
-        if not any(str(d).startswith("libgfortran") for d in dependencies if isinstance(d, str)):
+        if not any(
+            str(d).startswith("libgfortran") for d in dependencies if isinstance(d, str)
+        ):
             dependencies.append("libgfortran")
-        if not any(str(d).startswith("libgcc-ng") for d in dependencies if isinstance(d, str)):
+        if not any(
+            str(d).startswith("libgcc-ng") for d in dependencies if isinstance(d, str)
+        ):
             dependencies.append("libgcc-ng")
-        if not any(str(d).startswith("libgomp") for d in dependencies if isinstance(d, str)):
+        if not any(
+            str(d).startswith("libgomp") for d in dependencies if isinstance(d, str)
+        ):
             dependencies.append("libgomp")
-        if not any(str(d).startswith("libstdcxx-ng") for d in dependencies if isinstance(d, str)):
+        if not any(
+            str(d).startswith("libstdcxx-ng")
+            for d in dependencies
+            if isinstance(d, str)
+        ):
             dependencies.append("libstdcxx-ng")
     if pip_packages:
         dependencies.append({"pip": pip_packages})
@@ -926,6 +994,7 @@ def _should_launch_project() -> bool:
         return True
     return sys.version_info[:2] != REQUIRED_PYTHON_VERSION
 
+
 def _discover_scorer_module_name(scoring_pipeline_dir: str) -> str:
     scoring_path = Path(scoring_pipeline_dir)
     wheel_candidates = sorted(scoring_path.glob("scoring_h2oai_experiment_*.whl"))
@@ -934,8 +1003,6 @@ def _discover_scorer_module_name(scoring_pipeline_dir: str) -> str:
             "Unable to find scoring_h2oai_experiment_*.whl in scoring pipeline"
         )
     return wheel_candidates[-1].name.split("-")[0]
-
-
 
 
 def _launch_project_logging(
@@ -1133,7 +1200,9 @@ def _log_driverless_scoring_pipeline_impl(
         if input_schema is not None and resolved_output_example is not None:
             # Let MLflow infer outputs from example but keep our input schema
             inferred = infer_signature(
-                _ensure_pandas_frame(input_example_final) if input_example_final is not None else None,
+                _ensure_pandas_frame(input_example_final)
+                if input_example_final is not None
+                else None,
                 _ensure_pandas_frame(resolved_output_example),
             )
             signature = ModelSignature(inputs=input_schema, outputs=inferred.outputs)
@@ -1151,7 +1220,9 @@ def _log_driverless_scoring_pipeline_impl(
                     and meta.get("stats", {}).get("is_numeric")
                     and name not in (normalized_columns or [])
                 ]
-                output_name = numeric_candidates[0] if numeric_candidates else "prediction"
+                output_name = (
+                    numeric_candidates[0] if numeric_candidates else "prediction"
+                )
             output_schema = Schema([ColSpec(type="double", name=str(output_name))])
             signature = ModelSignature(inputs=input_schema, outputs=output_schema)
     except Exception as exc:  # pragma: no cover - defensive
@@ -1197,13 +1268,20 @@ def _log_driverless_scoring_pipeline_impl(
                 "Unsupported mlflow.pyfunc.log_model signature: missing code path parameter"
             )
 
-        if python_env_cfg is not None and conda_env_cfg is not None and "conda_env" in log_model_signature.parameters:
+        if (
+            python_env_cfg is not None
+            and conda_env_cfg is not None
+            and "conda_env" in log_model_signature.parameters
+        ):
             # Prefer conda_env so non-pip deps (libmagic) are installed in Serving
             log_kwargs["conda_env"] = conda_env_cfg
             if "python_version" in log_model_signature.parameters:
                 requested_python = python_env_cfg.get("python", DEFAULT_PYTHON_VERSION)
                 log_kwargs.setdefault("python_version", requested_python)
-        elif python_env_cfg is not None and "python_env" in log_model_signature.parameters:
+        elif (
+            python_env_cfg is not None
+            and "python_env" in log_model_signature.parameters
+        ):
             log_kwargs["python_env"] = python_env_cfg
             if "python_version" in log_model_signature.parameters:
                 requested_python = python_env_cfg.get("python", DEFAULT_PYTHON_VERSION)
@@ -1357,7 +1435,6 @@ def log_driverless_scoring_pipeline(
                 os.unlink(temp_file)
             except OSError:
                 pass
-
 
 
 def _parse_args(args: Optional[Sequence[str]] = None) -> argparse.Namespace:

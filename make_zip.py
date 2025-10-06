@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import os
 import zipfile
 
 
@@ -66,7 +65,7 @@ def build_zip(src_dir: Path, out_zip: Path) -> None:
 
             # add directory entry
             rel_dir = dp.relative_to(src_dir)
-            arc_dir = (root_prefix / rel_dir)
+            arc_dir = root_prefix / rel_dir
             # only write non-root directory entries; root already added above
             if str(rel_dir) not in (".", ""):
                 zf.writestr(str(arc_dir) + "/", b"")
@@ -87,7 +86,9 @@ def build_zip(src_dir: Path, out_zip: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Create an importable package ZIP")
-    ap.add_argument("-p", "--package", default=str(DEFAULT_SRC), help="Path to package directory")
+    ap.add_argument(
+        "-p", "--package", default=str(DEFAULT_SRC), help="Path to package directory"
+    )
     ap.add_argument("-o", "--output", default=str(DEFAULT_OUT), help="Output zip path")
     args = ap.parse_args()
 

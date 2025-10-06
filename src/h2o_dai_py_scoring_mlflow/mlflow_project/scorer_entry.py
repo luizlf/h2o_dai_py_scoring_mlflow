@@ -41,6 +41,7 @@ import pandas as pd
 # h2o_dai_py_scoring_mlflow package to be importable.
 PROJECT_MODE_ENV = "H2O_DAI_MLFLOW_PROJECT_MODE"
 
+
 def get_build_pyorc_enabled() -> bool:
     return os.environ.get("H2O_DAI_MLFLOW_BUILD_PYORC", "1").strip() != "0"
 
@@ -362,12 +363,23 @@ def _score_command(args: argparse.Namespace) -> int:
         # reference it explicitly.
         try:
             if get_build_pyorc_enabled():
-                have_pyorc = any(p.name.startswith("pyorc-") and p.suffix == ".whl" for p in scoring_dir.glob("pyorc-*.whl"))
+                have_pyorc = any(
+                    p.name.startswith("pyorc-") and p.suffix == ".whl"
+                    for p in scoring_dir.glob("pyorc-*.whl")
+                )
                 if not have_pyorc:
                     pref = get_pyorc_version()
                     candidates = [f"pyorc=={pref}", "pyorc"] if pref else ["pyorc"]
                     for spec in candidates:
-                        cmd = [sys.executable, "-m", "pip", "wheel", spec, "-w", str(scoring_dir)]
+                        cmd = [
+                            sys.executable,
+                            "-m",
+                            "pip",
+                            "wheel",
+                            spec,
+                            "-w",
+                            str(scoring_dir),
+                        ]
                         try:
                             subprocess.check_call(cmd)
                             break
@@ -425,15 +437,24 @@ def _log_model_command(args: argparse.Namespace) -> int:
     from h2o_dai_py_scoring_mlflow.mlflow_driverless.deployment import (
         log_driverless_scoring_pipeline_in_project,
     )
+
     apply_data_recipes = _parse_bool(args.apply_data_recipes)
     run_id = args.run_id or None
     registered_name = args.registered_model_name or None
 
-    scorer_kwargs: Dict[str, Any] = _load_json(args.scorer_kwargs_json, default={}) or {}
-    predict_kwargs: Dict[str, Any] = _load_json(args.predict_kwargs_json, default={}) or {}
-    extra_artifacts: Dict[str, str] = _load_json(args.extra_artifacts_json, default={}) or {}
+    scorer_kwargs: Dict[str, Any] = (
+        _load_json(args.scorer_kwargs_json, default={}) or {}
+    )
+    predict_kwargs: Dict[str, Any] = (
+        _load_json(args.predict_kwargs_json, default={}) or {}
+    )
+    extra_artifacts: Dict[str, str] = (
+        _load_json(args.extra_artifacts_json, default={}) or {}
+    )
     pip_requirements_list = _load_json(args.pip_requirements_json, default=None)
-    if pip_requirements_list is not None and not isinstance(pip_requirements_list, list):
+    if pip_requirements_list is not None and not isinstance(
+        pip_requirements_list, list
+    ):
         raise ValueError("pip_requirements_json must decode to a list of strings")
     if pip_requirements_list:
         pip_requirements = [str(item) for item in pip_requirements_list]
@@ -460,13 +481,9 @@ def _log_model_command(args: argparse.Namespace) -> int:
 
     extra_artifacts = dict(extra_artifacts)
     if input_example_path and input_example_path.exists():
-        extra_artifacts.setdefault(
-            "examples/input_example", str(input_example_path)
-        )
+        extra_artifacts.setdefault("examples/input_example", str(input_example_path))
     if output_example_path and output_example_path.exists():
-        extra_artifacts.setdefault(
-            "examples/output_example", str(output_example_path)
-        )
+        extra_artifacts.setdefault("examples/output_example", str(output_example_path))
 
     with _scoring_pipeline(args.scoring_dir) as (scoring_dir, marker):
         _install_scoring_wheels(scoring_dir, marker)
@@ -488,7 +505,9 @@ def _log_model_command(args: argparse.Namespace) -> int:
             input_example_df=input_example_df,
             output_example_df=output_example_df,
             input_example_path=str(input_example_path) if input_example_path else None,
-            output_example_path=str(output_example_path) if output_example_path else None,
+            output_example_path=str(output_example_path)
+            if output_example_path
+            else None,
         )
 
     payload = {
@@ -509,7 +528,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    score_parser = subparsers.add_parser("score", help="Score a dataset with the pipeline")
+    score_parser = subparsers.add_parser(
+        "score", help="Score a dataset with the pipeline"
+    )
     score_parser.add_argument("--scoring-dir", default="scoring-pipeline")
     score_parser.add_argument("--input-path", required=True)
     score_parser.add_argument("--output-path", required=True)

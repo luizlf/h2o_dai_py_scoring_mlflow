@@ -8,7 +8,6 @@ Configuration is driven via environment variables (see src/h2o_dai_py_scoring_ml
 
 from __future__ import annotations
 
-import os
 import mlflow
 
 from h2o_dai_py_scoring_mlflow.mlflow_driverless import log_driverless_scoring_pipeline

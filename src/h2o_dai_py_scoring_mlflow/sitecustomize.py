@@ -40,6 +40,7 @@ if stdlib_resources is not None and backport_resources is not None:
         except Exception:
             pass
 
+
 # 2) Remove Databricks runtime Spark paths so pip pyspark imports cleanly
 def _strip_dbr_spark_paths() -> None:
     markers = (
@@ -56,30 +57,41 @@ def _strip_dbr_spark_paths() -> None:
         if key in os.environ and "/databricks" in os.environ.get(key, ""):
             os.environ.pop(key, None)
 
+
 _strip_dbr_spark_paths()
+
 
 # 3) Some runtimes wrap sys.stdout/stderr with objects that don't expose
 #    fileno(), while native libs call it. Provide a minimal shim.
 def _ensure_streams_have_fileno() -> None:
     import sys as _sys
-    import io as _io
+
     class _WithFileno:
         def __init__(self, base, fd):
             self._b = base
             self._fd = fd
+
         def fileno(self):
             return self._fd
+
         def __getattr__(self, name):
             return getattr(self._b, name)
+
     try:
-        if not hasattr(_sys.stdout, 'fileno') or not callable(getattr(_sys.stdout, 'fileno', None)):
+        if not hasattr(_sys.stdout, "fileno") or not callable(
+            getattr(_sys.stdout, "fileno", None)
+        ):
             _sys.stdout = _WithFileno(_sys.stdout, 1)  # type: ignore
-        if not hasattr(_sys.stderr, 'fileno') or not callable(getattr(_sys.stderr, 'fileno', None)):
+        if not hasattr(_sys.stderr, "fileno") or not callable(
+            getattr(_sys.stderr, "fileno", None)
+        ):
             _sys.stderr = _WithFileno(_sys.stderr, 2)  # type: ignore
     except Exception:
         pass
 
+
 _ensure_streams_have_fileno()
+
 
 # 4) Some Driverless versions access psutil.RLIM_INFINITY, which is not
 #    exposed by newer psutil releases. Provide a compatibility shim by
@@ -87,9 +99,11 @@ _ensure_streams_have_fileno()
 def _ensure_psutil_rlim_infinity() -> None:
     try:
         import psutil  # type: ignore
+
         if not hasattr(psutil, "RLIM_INFINITY"):
             try:
                 import resource as _resource  # type: ignore
+
                 value = getattr(_resource, "RLIM_INFINITY", -1)
             except Exception:
                 value = -1
@@ -100,12 +114,15 @@ def _ensure_psutil_rlim_infinity() -> None:
     except Exception:
         pass
 
+
 _ensure_psutil_rlim_infinity()
+
 
 # 5) Broader psutil RLIMIT constants shim: define missing RLIMIT_* names as None.
 def _ensure_psutil_rlimit_constants() -> None:
     try:
         import psutil  # type: ignore
+
         names = [
             "RLIM_INFINITY",
             "RLIMIT_AS",
@@ -134,7 +151,9 @@ def _ensure_psutil_rlimit_constants() -> None:
     except Exception:
         pass
 
+
 _ensure_psutil_rlimit_constants()
+
 
 # 4) Ensure the env's lib path is on LD_LIBRARY_PATH for OpenBLAS discovery
 def _ensure_ld_library_path() -> None:
@@ -168,6 +187,7 @@ def _ensure_ld_library_path() -> None:
     except Exception:
         # Best effort only
         pass
+
 
 _ensure_ld_library_path()
 
@@ -207,20 +227,31 @@ def _diagnose_native_libs() -> None:
         cfg = getattr(_np, "__config__", None)
         if cfg is not None:
             info = {}
-            for key in ("openblas_info", "blas_ilp64_info", "blas_opt_info", "lapack_opt_info"):
+            for key in (
+                "openblas_info",
+                "blas_ilp64_info",
+                "blas_opt_info",
+                "lapack_opt_info",
+            ):
                 try:
                     info[key] = cfg.get_info(key)
                 except Exception:
                     pass
-            _log(f"numpy={_np.__version__} build_info={{{k: bool(v) for k,v in info.items()}}}")
+            _log(
+                f"numpy={_np.__version__} build_info={{{k: bool(v) for k, v in info.items()}}}"
+            )
     except Exception:
         pass
 
     conda_prefix = os.environ.get("CONDA_PREFIX")
     prefixes = [p for p in (conda_prefix, sys.prefix) if p]
-    lib_dirs = [os.path.join(p, "lib") for p in prefixes if os.path.isdir(os.path.join(p, "lib"))]
+    lib_dirs = [
+        os.path.join(p, "lib")
+        for p in prefixes
+        if os.path.isdir(os.path.join(p, "lib"))
+    ]
     _log(f"sys.prefix={sys.prefix} CONDA_PREFIX={conda_prefix}")
-    _log(f"LD_LIBRARY_PATH={os.environ.get('LD_LIBRARY_PATH','')}")
+    _log(f"LD_LIBRARY_PATH={os.environ.get('LD_LIBRARY_PATH', '')}")
     if lib_dirs:
         _log(f"lib_dirs={lib_dirs}")
         for d in lib_dirs:

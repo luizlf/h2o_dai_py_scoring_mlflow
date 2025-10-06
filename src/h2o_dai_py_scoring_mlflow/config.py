@@ -8,6 +8,7 @@ Environment variables:
   - H2O_DAI_MLFLOW_ARTIFACT_PATH: Artifact path for the logged model (default: h2o_dai_scoring_pyfunc)
   - SCORING_PIPELINE_DIR: Absolute path to the exported scoring-pipeline directory
                            (fallback: ./scoring-pipeline next to this package)
+  - H2O_DAI_MLFLOW_WORKSPACE_SCORING_DIR: Optional workspace path to the scoring-pipeline
 
 Driverless/packaging toggles (read in deployment/scorer_entry):
   - H2O_DAI_MLFLOW_EXCLUDE_PACKAGES: comma-separated names to drop from pip (default: h2o4gpu,pyorc)
@@ -107,15 +108,18 @@ def get_scoring_dir() -> str:
     local = (here / "scoring-pipeline").resolve()
     if local.exists():
         return str(local)
-    # Databricks workspace fallback (project-specific); ok as optional convenience
-    ws_default = Path("/Workspace/Users/luiz.santos@h2o.ai/mlflow_proj/scoring-pipeline")
-    if ws_default.exists():
-        return str(ws_default)
+    # Optional workspace fallback if explicitly configured via env
+    ws_path = os.environ.get("H2O_DAI_MLFLOW_WORKSPACE_SCORING_DIR", "").strip()
+    if ws_path:
+        ws = Path(ws_path).resolve()
+        if ws.exists():
+            return str(ws)
     # Last resort: return the local path even if missing; downstream will raise
     return str(local)
 
 
 # ========= Derived getters for packaging/runtime =========
+
 
 def _dedup_preserve_order(items: Iterable[str]) -> List[str]:
     seen = set()
@@ -134,7 +138,9 @@ def get_excluded_packages() -> List[str]:
 
 
 def is_importlib_resources_disabled() -> bool:
-    return os.environ.get("H2O_DAI_MLFLOW_DISABLE_IMPORTLIB_RESOURCES", "0").strip() == "1"
+    return (
+        os.environ.get("H2O_DAI_MLFLOW_DISABLE_IMPORTLIB_RESOURCES", "0").strip() == "1"
+    )
 
 
 def get_importlib_resources_version() -> str:
@@ -149,7 +155,9 @@ def is_pyspark_disabled() -> bool:
 
 
 def get_pyspark_version() -> str:
-    return os.environ.get("H2O_DAI_MLFLOW_PYSPARK_VERSION", PYSPARK_VERSION_DEFAULT).strip()
+    return os.environ.get(
+        "H2O_DAI_MLFLOW_PYSPARK_VERSION", PYSPARK_VERSION_DEFAULT
+    ).strip()
 
 
 def is_libmagic_disabled() -> bool:
@@ -159,6 +167,7 @@ def is_libmagic_disabled() -> bool:
 def is_openblas_disabled() -> bool:
     return os.environ.get("H2O_DAI_MLFLOW_DISABLE_OPENBLAS", "0").strip() == "1"
 
+
 def get_openblas_version() -> str:
     return os.environ.get(
         "H2O_DAI_MLFLOW_OPENBLAS_VERSION", OPENBLAS_VERSION_DEFAULT
@@ -167,7 +176,12 @@ def get_openblas_version() -> str:
 
 def is_conda_forced() -> bool:
     # Default to forcing conda to ensure non-pip deps like libmagic are present
-    return os.environ.get("H2O_DAI_MLFLOW_FORCE_CONDA", "1" if FORCE_CONDA_DEFAULT else "0").strip() == "1"
+    return (
+        os.environ.get(
+            "H2O_DAI_MLFLOW_FORCE_CONDA", "1" if FORCE_CONDA_DEFAULT else "0"
+        ).strip()
+        == "1"
+    )
 
 
 def is_project_disabled() -> bool:
@@ -196,7 +210,9 @@ def get_pyorc_version() -> str:
 
 
 def is_safe_predict_envs_disabled() -> bool:
-    return os.environ.get("H2O_DAI_MLFLOW_DISABLE_SAFE_PREDICT_ENVS", "0").strip() == "1"
+    return (
+        os.environ.get("H2O_DAI_MLFLOW_DISABLE_SAFE_PREDICT_ENVS", "0").strip() == "1"
+    )
 
 
 def get_conda_env_variables() -> Dict[str, str]:
