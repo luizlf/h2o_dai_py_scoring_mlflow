@@ -1,9 +1,11 @@
 .databricks/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.vscode/
 build/
 dist/
 __pycache__/
 *.egg-info
-.venv/
 scratch/**
-!scratch/README.md
 .DS_Store
